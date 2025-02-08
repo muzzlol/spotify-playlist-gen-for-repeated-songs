@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/zmb3/spotify"
+	"github.com/zmb3/spotify/v2"
 )
 
 var (
-	runTimer         int = 30
+	runTimer         int = 1
 	validListenTimes int = 5
+	afterTime        int64
 )
 
 func main() {
@@ -30,6 +31,7 @@ func main() {
 		log.Fatalf("could not get user: %v", err)
 	}
 	var repeatsPlaylist *spotify.SimplePlaylist
+	fmt.Printf("repeatsPlaylist: %v\n", repeatsPlaylist)
 
 	playlists, err := client.GetPlaylistsForUser(context.Background(), user.ID)
 	if err != nil {
@@ -46,7 +48,7 @@ func main() {
 	}
 
 	if !playlistExists {
-		playlist, err := client.CreatePlaylistForUser(context.Background(), user.ID, "Repeats", "Playlist for tracks on repeat", false)
+		playlist, err := client.CreatePlaylistForUser(context.Background(), user.ID, "Repeats", "Playlist for tracks on repeat", false, false)
 		if err != nil {
 			log.Fatalf("could not create playlist: %v", err)
 		}
@@ -58,13 +60,25 @@ func main() {
 	}
 
 	fmap := make(map[string]int)
+	fmt.Printf("fmap: %v\n", fmap)
 
 	ticker := time.NewTicker(time.Duration(runTimer) * time.Minute)
 	defer ticker.Stop()
 
 	// function runs every time ticker ticks otherwise nothing happens between ticks
 	for range ticker.C {
+		recentlyPlayed, err := client.PlayerRecentlyPlayedOpt(context.Background(), &spotify.RecentlyPlayedOptions{
+			Limit:        50,
+			AfterEpochMs: afterTime,
+		})
+		if err != nil {
+			log.Fatalf("could not get recently played: %v", err)
+		}
 
+		fmt.Printf("Recently played: %v\n", recentlyPlayed)
+		// 	for _, item := range recentlyPlayed.Items {
+		// 			fmap[item.Track.ID.String()]++
+		// 	}
 	}
 
 }
