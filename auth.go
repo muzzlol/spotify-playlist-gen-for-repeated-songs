@@ -25,7 +25,10 @@ func init() {
 		spotifyauth.WithRedirectURL(redirectURI),
 		spotifyauth.WithScopes(
 			spotifyauth.ScopeUserReadPrivate,
+			spotifyauth.ScopePlaylistReadPrivate,
+			spotifyauth.ScopePlaylistReadCollaborative,
 			spotifyauth.ScopePlaylistModifyPublic,
+			spotifyauth.ScopePlaylistModifyPrivate,
 			spotifyauth.ScopeUserReadRecentlyPlayed,
 		),
 		spotifyauth.WithClientID(clientID),
