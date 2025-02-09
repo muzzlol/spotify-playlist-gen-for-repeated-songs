@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -64,7 +63,6 @@ func spotifyCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	// use token to get authenticated client
 	client := spotify.New(auth.Client(r.Context(), token)) // returns pointer to authenticated client
-	fmt.Printf("Logged in as: %v", client)
 	ch <- client
 }
 
