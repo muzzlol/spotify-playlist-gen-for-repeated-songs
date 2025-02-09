@@ -11,11 +11,11 @@ import (
 )
 
 var (
-	pollInterval     time.Duration = 1 * time.Minute // Duration in-between api calls
-	validListenTimes int           = 3               // Track add if plays exceed
-	fmapLimit        int           = 7               // Limit plays for songs
-	decayThreshold   int           = 5               // API calls are decremented if return exceeds
-	afterTime        int64                           // unix after value
+	pollInterval     time.Duration = 30 * time.Minute // Duration in-between api calls
+	validListenTimes int           = 3                // Track add if plays exceed
+	fmapLimit        int           = 7                // Limit plays for songs
+	decayThreshold   int           = 5                // API calls are decremented if return exceeds
+	afterTime        int64                            // unix after value
 )
 
 func main() {
