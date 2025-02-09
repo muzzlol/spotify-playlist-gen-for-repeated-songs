@@ -61,8 +61,13 @@ func spotifyCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf("State mismatch: %s != %s\n", st, state)
 	}
 
-	// use token to get authenticated client
-	client := spotify.New(auth.Client(r.Context(), token)) // returns pointer to authenticated client
+	// Create an HTTP client with automatic token refresh
+	httpClient := auth.Client(r.Context(), token)
+	client := spotify.New(httpClient)
+
+	// Write success message
+	w.Write([]byte("Authentication successful! You can close this window."))
+
 	ch <- client
 }
 

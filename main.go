@@ -14,13 +14,15 @@ var (
 	pollInterval     time.Duration = 30 * time.Minute // Duration in-between api calls
 	validListenTimes int           = 3                // Track add if plays exceed
 	fmapLimit        int           = 7                // Limit plays for songs
-	decayThreshold   int           = 5                // API calls are decremented if return exceeds
+	decayThreshold   int           = 5                // treshold value if number of recent tracks exceeds this amount
 	afterTime        int64                            // unix after value
 )
 
 func main() {
 	http.HandleFunc("/auth/spotify/login", spotifyLoginHandler)
 	http.HandleFunc("/auth/spotify/callback", spotifyCallbackHandler)
+
+	fmt.Printf("\nPlease visit this URL to authenticate with Spotify: http://localhost:8080/auth/spotify/login\n\n")
 
 	go func() {
 		log.Fatal(http.ListenAndServe(":8080", nil))
@@ -68,6 +70,7 @@ func main() {
 	fmap := make(map[spotify.ID]int) // Store fmap with track id as spotify.ID
 	log.Println("Initialized frequency map")
 
+	// TODO : replace with switch case logic cause wtf, ugly
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	log.Printf("Started ticker with interval: %v\n", pollInterval)
