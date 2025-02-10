@@ -66,105 +66,139 @@ func main() {
 		fmt.Printf("Created playlist: %s\n", playlist.Name)
 		log.Printf("Created 'Repeats' playlist with ID: %s\n", playlist.ID)
 	}
+	// current state of playlist
+	repeats := []spotify.ID{}
 
 	fmap := make(map[spotify.ID]int) // Store fmap with track id as spotify.ID
 	log.Println("Initialized frequency map")
+
+	// run core once immediately then move to ticker loop
+	core(fmap, client, repeatsPlaylist)
+
+	// making initial state of playlist
+	playlistItem, err := client.GetPlaylistItems(context.Background(), repeatsPlaylist.ID)
+	if err != nil {
+		log.Printf("could not get playlist tracks: %v", err)
+	}
+	for _, playlistTrack := range playlistItem.Items {
+		repeats = append(repeats, playlistTrack.Track.Track.ID)
+	}
+	fmt.Printf("Initialized state of repeats playlist: %v", repeats)
 
 	// TODO : replace with switch case logic cause wtf, ugly
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	log.Printf("Started ticker with interval: %v\n", pollInterval)
-
 	// function runs every time ticker ticks otherwise nothing happens between ticks
 	for tick := range ticker.C {
-		log.Printf("----- Ticker ticked at: %v -----\n", tick)
-		recentlyPlayed, err := client.PlayerRecentlyPlayedOpt(context.Background(), &spotify.RecentlyPlayedOptions{
-			Limit:        50,
-			AfterEpochMs: afterTime,
-		})
-		if err != nil {
-			log.Fatalf("could not get recently played: %v", err)
-		}
-		log.Printf("Fetched %d recently played tracks\n", len(recentlyPlayed))
-		for index, item := range recentlyPlayed {
-			log.Printf("%d: Recently played track: %s by %s", index, item.Track.Name, item.Track.Artists[0].Name)
-		}
-		if len(recentlyPlayed) > 0 {
-			afterTime = recentlyPlayed[0].PlayedAt.UnixMilli() // First played track time
-			log.Printf("Set afterTime to: %v\n", afterTime)
+		log.Printf("Ticker ticked at: %v\n", tick)
+		core(fmap, client, repeatsPlaylist)
+		checkForManulChanges(fmap, client, repeatsPlaylist, repeats)
+		log.Println("Ticker finished")
+	}
+}
 
-			if len(recentlyPlayed) > decayThreshold {
-				log.Println("More than decayThreshold tracks, starting decay process")
-				// Decrement counts for repeats pl tracks not in the most recently played list from fmap
-				for trackID := range fmap {
-					found := false
-					for _, item := range recentlyPlayed {
-						if item.Track.ID == trackID {
-							found = true
-							break
-						}
-					}
-					if !found {
-						fmap[trackID]--
-						log.Printf("Track %s not found in recently played, decrementing count to %d\n", trackID, fmap[trackID])
-						if fmap[trackID] <= 0 {
-							delete(fmap, trackID)
-							log.Printf("Track %s count reached 0, removing from fmap\n", trackID)
+func core(fmap map[spotify.ID]int, client *spotify.Client, repeatsPlaylist *spotify.SimplePlaylist) {
+	log.Printf("----- Core function running -----\n")
 
-							// Remove the track from the "Repeats" playlist here, if it exists
-							_, err := client.RemoveTracksFromPlaylist(context.Background(), repeatsPlaylist.ID, trackID)
-							if err != nil {
-								log.Printf("could not remove track %s from playlist: %v", trackID, err)
-							} else {
-								fmt.Printf("Removed track from playlist %s", trackID)
-								log.Printf("Removed track %s from playlist\n", trackID)
-							}
-						}
+	recentlyPlayed, err := client.PlayerRecentlyPlayedOpt(context.Background(), &spotify.RecentlyPlayedOptions{
+		Limit:        50,
+		AfterEpochMs: afterTime,
+	})
+	if err != nil {
+		log.Fatalf("could not get recently played: %v", err)
+	}
+	log.Printf("Fetched %d recently played tracks\n", len(recentlyPlayed))
+	for index, item := range recentlyPlayed {
+		log.Printf("%d: Recently played track: %s by %s", index, item.Track.Name, item.Track.Artists[0].Name)
+	}
+	if len(recentlyPlayed) > 0 {
+		afterTime = recentlyPlayed[0].PlayedAt.UnixMilli() // First played track time
+		log.Printf("Set afterTime to: %v\n", afterTime)
+
+		if len(recentlyPlayed) > decayThreshold {
+			log.Println("More than decayThreshold tracks, starting decay process")
+			// Decrement counts for repeats pl tracks not in the most recently played list from fmap
+			for trackID := range fmap {
+				found := false
+				for _, item := range recentlyPlayed {
+					if item.Track.ID == trackID {
+						found = true
+						break
 					}
 				}
-			}
+				if !found {
+					fmap[trackID]--
+					log.Printf("Track %s not found in recently played, decrementing count to %d\n", trackID, fmap[trackID])
+					if fmap[trackID] <= 0 {
+						delete(fmap, trackID)
+						log.Printf("Track %s count reached 0, removing from fmap\n", trackID)
 
-			for _, item := range recentlyPlayed {
-				trackID := item.Track.ID
-				fmap[trackID]++
-				log.Printf("Track %s found in recently played, incrementing count to %d\n", trackID, fmap[trackID])
-				if fmap[trackID] >= fmapLimit {
-					fmap[trackID] = fmapLimit //Limit to avoid never deleting
-					log.Printf("Track %s count reached fmapLimit of %d\n", trackID, fmapLimit)
-				}
-
-				if fmap[trackID] == validListenTimes {
-					log.Printf("Track %s count reached validListenTimes of %d, checking playlist\n", trackID, validListenTimes)
-					// Check if track exists in playlist
-					trackExists := false
-					playlistItem, err := client.GetPlaylistItems(context.Background(), repeatsPlaylist.ID)
-					if err != nil {
-						log.Printf("could not get playlist tracks: %v", err)
-						continue
-					}
-					for _, playlistTrack := range playlistItem.Items {
-						if playlistTrack.Track.Track.ID == item.Track.ID {
-							trackExists = true
-							log.Printf("Track %s already exists in playlist\n", trackID)
-							break
-						}
-					}
-
-					if !trackExists {
-						_, err := client.AddTracksToPlaylist(context.Background(), repeatsPlaylist.ID, item.Track.ID)
+						// Remove the track from the "Repeats" playlist here, if it exists
+						_, err := client.RemoveTracksFromPlaylist(context.Background(), repeatsPlaylist.ID, trackID)
 						if err != nil {
-							log.Printf("could not add track to playlist: %v", err)
+							log.Printf("could not remove track %s from playlist: %v", trackID, err)
+						} else {
+							fmt.Printf("Removed track from playlist %s", trackID)
+							log.Printf("Removed track %s from playlist\n", trackID)
 						}
-						fmt.Printf("Added track: %s\n", item.Track.Name)
-						log.Printf("Added track %s to playlist\n", trackID)
 					}
 				}
 			}
-
-		} else {
-			log.Println("No recently played tracks found")
 		}
-		log.Println("----- Ticker finished -----")
+
+		for _, item := range recentlyPlayed {
+			trackID := item.Track.ID
+			fmap[trackID]++
+			log.Printf("Track %s found in recently played, incrementing count to %d\n", trackID, fmap[trackID])
+			if fmap[trackID] >= fmapLimit {
+				fmap[trackID] = fmapLimit //Limit to avoid never deleting
+				log.Printf("Track %s count reached fmapLimit of %d\n", trackID, fmapLimit)
+			}
+
+			if fmap[trackID] == validListenTimes {
+				log.Printf("Track %s count reached validListenTimes of %d, checking playlist\n", trackID, validListenTimes)
+				// Check if track exists in playlist
+				trackExists := false
+				playlistItem, err := client.GetPlaylistItems(context.Background(), repeatsPlaylist.ID)
+				if err != nil {
+					log.Printf("could not get playlist tracks: %v", err)
+					continue
+				}
+				for _, playlistTrack := range playlistItem.Items {
+					if playlistTrack.Track.Track.ID == item.Track.ID {
+						trackExists = true
+						log.Printf("Track %s already exists in playlist\n", trackID)
+						break
+					}
+				}
+
+				if !trackExists {
+					_, err := client.AddTracksToPlaylist(context.Background(), repeatsPlaylist.ID, item.Track.ID)
+					if err != nil {
+						log.Printf("could not add track to playlist: %v", err)
+					}
+					fmt.Printf("Added track: %s\n", item.Track.Name)
+					log.Printf("Added track %s to playlist\n", trackID)
+				}
+			}
+		}
+
+	} else {
+		log.Println("No recently played tracks found")
+	}
+	log.Println("----- Core function finished -----")
+}
+
+// checking if user added or removed tracks then updating fmap accordingly
+func checkForManulChanges(fmap map[spotify.ID]int, client *spotify.Client, repeatsPlaylist *spotify.SimplePlaylist, repeats []spotify.ID) {
+	tracks, err := client.GetPlaylistItems(context.Background(), repeatsPlaylist.ID)
+	if err != nil {
+		log.Fatalf("could not get playlist tracks: %v", err)
+	}
+
+	for _, item := range tracks.Items {
+
 	}
 
 }
