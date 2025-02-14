@@ -16,6 +16,7 @@ var (
 	fmapLimit        int           = 7                // Limit plays for songs
 	decayThreshold   int           = 5                // treshold value if number of recent tracks exceeds this amount
 	afterTime        int64                            // unix after value
+	lastSnapshot     string                           // Track the last snapshot ID of the playlist
 )
 
 func main() {
@@ -66,24 +67,12 @@ func main() {
 		fmt.Printf("Created playlist: %s\n", playlist.Name)
 		log.Printf("Created 'Repeats' playlist with ID: %s\n", playlist.ID)
 	}
-	// current state of playlist
-	repeats := []spotify.ID{}
 
 	fmap := make(map[spotify.ID]int) // Store fmap with track id as spotify.ID
 	log.Println("Initialized frequency map")
 
 	// run core once immediately then move to ticker loop
 	core(fmap, client, repeatsPlaylist)
-
-	// making initial state of playlist
-	playlistItem, err := client.GetPlaylistItems(context.Background(), repeatsPlaylist.ID)
-	if err != nil {
-		log.Printf("could not get playlist tracks: %v", err)
-	}
-	for _, playlistTrack := range playlistItem.Items {
-		repeats = append(repeats, playlistTrack.Track.Track.ID)
-	}
-	fmt.Printf("Initialized state of repeats playlist: %v", repeats)
 
 	// TODO : replace with switch case logic cause wtf, ugly
 	ticker := time.NewTicker(pollInterval)
@@ -93,27 +82,76 @@ func main() {
 	for tick := range ticker.C {
 		log.Printf("Ticker ticked at: %v\n", tick)
 		core(fmap, client, repeatsPlaylist)
-		checkForManulChanges(fmap, client, repeatsPlaylist, repeats)
 		log.Println("Ticker finished")
 	}
 }
 
+// syncFmapWithSnapshot will check if the playlist snapshot has changed.
+// If it has, the function scans the playlist items (using the snapshot id)
+// and updates the internal frequency map accordingly.
+func syncFmapWithSnapshot(ctx context.Context, fmap map[spotify.ID]int, client *spotify.Client,
+	playlist *spotify.SimplePlaylist) {
+
+	// Fetch the playlist items
+	FullPlaylist, err := client.GetPlaylist(ctx, playlist.ID)
+	if err != nil {
+		log.Printf("Error fetching playlist items for sync: %v", err)
+		return
+	}
+
+	// If the snapshot ID has not changed, then nothing has been modified.
+	if lastSnapshot == FullPlaylist.SnapshotID {
+		log.Println("Playlist snapshot unchanged. No sync necessary.")
+		return
+	}
+
+	log.Printf("Detected playlist snapshot change: Old: %q, New: %q\n", lastSnapshot, FullPlaylist.SnapshotID)
+	// Build a set of track IDs in the current playlist.
+	currentTracks := make(map[spotify.ID]bool)
+	for _, item := range FullPlaylist.Tracks.Tracks {
+		trackID := item.Track.ID
+		currentTracks[trackID] = true
+
+		// If the track is in the playlist but not in the fmap, assume it was manually added.
+		if _, exists := fmap[trackID]; !exists {
+			fmap[trackID] = validListenTimes
+			log.Printf("Manual addition: Track %s found in playlist. Adding to fmap with count %d.\n", trackID, validListenTimes)
+		}
+	}
+
+	// Check for manual removals: if a track exists in fmap but is no longer in the playlist,
+	// then remove it (or reset its count) so it won't be re-added automatically.
+	for trackID := range fmap {
+		if _, found := currentTracks[trackID]; !found {
+			log.Printf("Manual removal: Track %s missing from playlist. Removing from fmap.\n", trackID)
+			delete(fmap, trackID)
+		}
+	}
+
+	// Finally, update the lastSnapshot variable.
+	lastSnapshot = FullPlaylist.SnapshotID
+	log.Printf("Sync complete. Updated snapshot id to %q.\n", lastSnapshot)
+}
+
 func core(fmap map[spotify.ID]int, client *spotify.Client, repeatsPlaylist *spotify.SimplePlaylist) {
 	log.Printf("----- Core function running -----\n")
+
+	// Sync manual changes using snapshot ID
+	syncFmapWithSnapshot(context.Background(), fmap, client, repeatsPlaylist)
 
 	recentlyPlayed, err := client.PlayerRecentlyPlayedOpt(context.Background(), &spotify.RecentlyPlayedOptions{
 		Limit:        50,
 		AfterEpochMs: afterTime,
 	})
 	if err != nil {
-		log.Fatalf("could not get recently played: %v", err)
+		log.Printf("could not get recently played: %v", err)
 	}
 	log.Printf("Fetched %d recently played tracks\n", len(recentlyPlayed))
 	for index, item := range recentlyPlayed {
 		log.Printf("%d: Recently played track: %s by %s", index, item.Track.Name, item.Track.Artists[0].Name)
 	}
 	if len(recentlyPlayed) > 0 {
-		afterTime = recentlyPlayed[0].PlayedAt.UnixMilli() // First played track time
+		afterTime = max(afterTime, recentlyPlayed[0].PlayedAt.UnixMilli()) // First played track time
 		log.Printf("Set afterTime to: %v\n", afterTime)
 
 		if len(recentlyPlayed) > decayThreshold {
@@ -188,17 +226,4 @@ func core(fmap map[spotify.ID]int, client *spotify.Client, repeatsPlaylist *spot
 		log.Println("No recently played tracks found")
 	}
 	log.Println("----- Core function finished -----")
-}
-
-// checking if user added or removed tracks then updating fmap accordingly
-func checkForManulChanges(fmap map[spotify.ID]int, client *spotify.Client, repeatsPlaylist *spotify.SimplePlaylist, repeats []spotify.ID) {
-	tracks, err := client.GetPlaylistItems(context.Background(), repeatsPlaylist.ID)
-	if err != nil {
-		log.Fatalf("could not get playlist tracks: %v", err)
-	}
-
-	for _, item := range tracks.Items {
-
-	}
-
 }
