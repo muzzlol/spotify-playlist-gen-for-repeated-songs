@@ -61,9 +61,18 @@ A Go application that automatically generates and maintains a Spotify playlist b
 
 ## Configuration
 
-You can modify the following variables in `main.go` to customize the behavior:
+The application's behavior can be customized through the `config.yaml` file:
 
-- `pollInterval`: How often to check for recently played tracks (default: 30 minutes)
-- `validListenTimes`: Number of times a track must be played to be added (default: 3)
-- `fmapLimit`: Maximum play count limit for songs (default: 7)
-- `decayThreshold`: Number of tracks that triggers the decay process (default: 5)
+```yaml
+# Duration between API calls (in hours)
+pollInterval: 2
+
+# Number of plays required to add track to playlist
+validListenTimes: 3
+
+# Maximum play count limit for songs
+fmapLimit: 7
+
+# Threshold value for decay process
+decayThreshold: 15
+```
