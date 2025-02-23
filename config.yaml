@@ -1,0 +1,11 @@
+# Duration between API calls (in hours)
+pollInterval: 2
+
+# Number of plays required to add track to playlist
+validListenTimes: 3
+
+# Maximum play count limit for songs
+fmapLimit: 7
+
+# Threshold value for decay process
+decayThreshold: 15

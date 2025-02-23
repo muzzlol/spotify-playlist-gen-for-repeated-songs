@@ -5,21 +5,51 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/zmb3/spotify/v2"
+	"gopkg.in/yaml.v3"
 )
+
+type Config struct {
+	PollInterval     int `yaml:"pollInterval"`
+	ValidListenTimes int `yaml:"validListenTimes"`
+	FmapLimit        int `yaml:"fmapLimit"`
+	DecayThreshold   int `yaml:"decayThreshold"`
+}
 
 var (
-	pollInterval     time.Duration = 30 * time.Minute // Duration in-between api calls
-	validListenTimes int           = 3                // Track add if plays exceed
-	fmapLimit        int           = 7                // Limit plays for songs
-	decayThreshold   int           = 5                // treshold value if number of recent tracks exceeds this amount
-	afterTime        int64                            // unix after value
-	lastSnapshot     string                           // Track the last snapshot ID of the playlist
+	pollInterval     time.Duration
+	validListenTimes int
+	fmapLimit        int
+	decayThreshold   int
+	afterTime        int64  // unix after value
+	lastSnapshot     string // Track the last snapshot ID of the playlist
 )
 
+func loadConfig() {
+	data, err := os.ReadFile("config.yaml")
+	if err != nil {
+		log.Fatalf("error reading config file: %v", err)
+	}
+
+	var config Config
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		log.Fatalf("error parsing config file: %v", err)
+	}
+
+	pollInterval = time.Duration(config.PollInterval) * time.Hour
+	validListenTimes = config.ValidListenTimes
+	fmapLimit = config.FmapLimit
+	decayThreshold = config.DecayThreshold
+
+	log.Printf("Loaded configuration: pollInterval=%v, validListenTimes=%d, fmapLimit=%d, decayThreshold=%d",
+		pollInterval, validListenTimes, fmapLimit, decayThreshold)
+}
+
 func main() {
+	loadConfig()
 	http.HandleFunc("/auth/spotify/login", spotifyLoginHandler)
 	http.HandleFunc("/auth/spotify/callback", spotifyCallbackHandler)
 
@@ -108,23 +138,51 @@ func syncFmapWithSnapshot(ctx context.Context, fmap map[spotify.ID]int, client *
 	log.Printf("Detected playlist snapshot change: Old: %q, New: %q\n", lastSnapshot, FullPlaylist.SnapshotID)
 	// Build a set of track IDs in the current playlist.
 	currentTracks := make(map[spotify.ID]bool)
-	for _, item := range FullPlaylist.Tracks.Tracks {
-		trackID := item.Track.ID
-		currentTracks[trackID] = true
 
-		// If the track is in the playlist but not in the fmap, assume it was manually added.
-		if _, exists := fmap[trackID]; !exists {
-			fmap[trackID] = validListenTimes
-			log.Printf("Manual addition: Track %s found in playlist. Adding to fmap with count %d.\n", trackID, validListenTimes)
+	// Initialize variables for pagination
+	offset := 0
+	limit := 50 // Spotify's default limit
+
+	// Loop until we've fetched all tracks
+	for {
+		playlistTracks, err := client.GetPlaylistItems(ctx, playlist.ID, spotify.Limit(limit), spotify.Offset(offset))
+		if err != nil {
+			log.Printf("Error fetching playlist items at offset %d: %v", offset, err)
+			return
 		}
+
+		// Process tracks from current page
+		for _, item := range playlistTracks.Items {
+			trackID := item.Track.Track.ID
+			currentTracks[trackID] = true
+
+			// If the track is in the playlist but not in the fmap, assume it was manually added.
+			if _, exists := fmap[trackID]; !exists {
+				fmap[trackID] = validListenTimes
+				log.Printf("Manual addition: Track %s found in playlist. Adding to fmap with count %d.\n", trackID, validListenTimes)
+			}
+		}
+
+		// Check if we've reached the end of the playlist
+		if len(playlistTracks.Items) < limit {
+			break
+		}
+
+		// Move to next page
+		offset += limit
 	}
 
 	// Check for manual removals: if a track exists in fmap but is no longer in the playlist,
-	// then remove it (or reset its count) so it won't be re-added automatically.
+	// then remove it so it won't be re-added automatically, but only if it had reached validListenTimes
 	for trackID := range fmap {
 		if _, found := currentTracks[trackID]; !found {
-			log.Printf("Manual removal: Track %s missing from playlist. Removing from fmap.\n", trackID)
-			delete(fmap, trackID)
+			// Only remove from fmap if the track had reached validListenTimes (was previously in playlist)
+			if fmap[trackID] >= validListenTimes {
+				log.Printf("Manual removal: Track %s missing from playlist and had reached validListenTimes. Removing from fmap.\n", trackID)
+				delete(fmap, trackID)
+			} else {
+				log.Printf("Track %s missing from playlist but hasn't reached validListenTimes (%d/%d). Keeping in fmap.\n", trackID, fmap[trackID], validListenTimes)
+			}
 		}
 	}
 
@@ -198,17 +256,32 @@ func core(fmap map[spotify.ID]int, client *spotify.Client, repeatsPlaylist *spot
 				log.Printf("Track %s count reached validListenTimes of %d, checking playlist\n", trackID, validListenTimes)
 				// Check if track exists in playlist
 				trackExists := false
-				playlistItem, err := client.GetPlaylistItems(context.Background(), repeatsPlaylist.ID)
-				if err != nil {
-					log.Printf("could not get playlist tracks: %v", err)
-					continue
-				}
-				for _, playlistTrack := range playlistItem.Items {
-					if playlistTrack.Track.Track.ID == item.Track.ID {
-						trackExists = true
-						log.Printf("Track %s already exists in playlist\n", trackID)
+				offset := 0
+				limit := 50 // Spotify's default limit
+
+				// Loop until we've checked all tracks
+				for {
+					playlistItems, err := client.GetPlaylistItems(context.Background(), repeatsPlaylist.ID, spotify.Limit(limit), spotify.Offset(offset))
+					if err != nil {
+						log.Printf("could not get playlist tracks: %v", err)
 						break
 					}
+
+					for _, playlistTrack := range playlistItems.Items {
+						if playlistTrack.Track.Track.ID == item.Track.ID {
+							trackExists = true
+							log.Printf("Track %s already exists in playlist\n", trackID)
+							break
+						}
+					}
+
+					// If we found the track or reached the end of the playlist, stop searching
+					if trackExists || len(playlistItems.Items) < limit {
+						break
+					}
+
+					// Move to next page
+					offset += limit
 				}
 
 				if !trackExists {
