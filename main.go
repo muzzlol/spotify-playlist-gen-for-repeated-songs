@@ -13,10 +13,10 @@ import (
 )
 
 type Config struct {
-	PollInterval     int `yaml:"pollInterval"`
-	ValidListenTimes int `yaml:"validListenTimes"`
-	FmapLimit        int `yaml:"fmapLimit"`
-	DecayThreshold   int `yaml:"decayThreshold"`
+	PollInterval     int `yaml:"poll_interval"`
+	ValidListenTimes int `yaml:"valid_listen_times"`
+	FmapLimit        int `yaml:"fmap_limit"`
+	DecayThreshold   int `yaml:"decay_threshold"`
 }
 
 var (

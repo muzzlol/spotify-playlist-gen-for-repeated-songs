@@ -65,14 +65,14 @@ The application's behavior can be customized through the `config.yaml` file:
 
 ```yaml
 # Duration between API calls (in hours)
-pollInterval: 2
+poll_interval: 2
 
 # Number of plays required to add track to playlist
-validListenTimes: 3
+valid_listenTimes: 3
 
 # Maximum play count limit for songs
-fmapLimit: 7
+fmap_limit: 7
 
 # Threshold value for decay process
-decayThreshold: 15
+decay_threshold: 15
 ```
