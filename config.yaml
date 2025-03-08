@@ -2,7 +2,7 @@
 poll_interval: 2
 
 # Number of plays required to add track to playlist
-valid_listenTimes: 3
+valid_listen_times: 3
 
 # Maximum play count limit for songs
 fmap_limit: 7
