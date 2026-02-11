@@ -53,7 +53,7 @@ func main() {
 	http.HandleFunc("/auth/spotify/login", spotifyLoginHandler)
 	http.HandleFunc("/auth/spotify/callback", spotifyCallbackHandler)
 
-	fmt.Printf("\nPlease visit this URL to authenticate with Spotify: https://localhost:8080/auth/spotify/login\n\n")
+	fmt.Printf("\nPlease visit this URL to authenticate with Spotify: http://127.0.0.1:8080/auth/spotify/login\n\n")
 
 	go func() {
 		log.Fatal(http.ListenAndServe(":8080", nil))
