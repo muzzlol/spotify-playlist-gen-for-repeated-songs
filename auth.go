@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -62,7 +63,7 @@ func spotifyCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create an HTTP client with automatic token refresh
-	httpClient := auth.Client(r.Context(), token)
+	httpClient := auth.Client(context.Background(), token)
 	client := spotify.New(httpClient)
 
 	// Write success message
