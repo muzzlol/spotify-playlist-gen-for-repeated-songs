@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PID=$(ps aux | grep './spo' | grep -v grep | awk '{print $2}')
+PID=$(ps aux | grep './spotify-playlist-gen' | grep -v grep | awk '{print $2}')
 
 if [ -n "$PID" ]; then
     echo "Killing process $PID"
@@ -9,9 +9,9 @@ if [ -n "$PID" ]; then
 fi
 
 echo "Building..."
-go build -o spo
+go build -o spotify-playlist-gen
 
 echo "Starting..."
-nohup ./spo > output.log 2>&1 &
+nohup ./spotify-playlist-gen > output.log 2>&1 &
 
 echo "Done. PID: $!"
