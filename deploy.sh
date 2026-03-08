@@ -8,6 +8,11 @@ if [ -n "$PID" ]; then
     sleep 1
 fi
 
+if [ -f output.log ]; then
+    echo "Deleting output.log"
+    rm output.log
+fi
+
 echo "Building..."
 go build -o spotify-playlist-gen
 
